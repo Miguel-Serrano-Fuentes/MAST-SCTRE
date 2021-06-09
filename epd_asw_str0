@@ -1,0 +1,189 @@
+Processing_Resource (
+   Type                   => Regular_Processor,
+   Name                   => leon3,
+   Max_Interrupt_Priority => 16,
+   Min_Interrupt_Priority => 1,
+   Worst_ISR_Switch       => 1.000E-07,
+   Avg_ISR_Switch         => 1.000E-07,
+   Best_ISR_Switch        => 1.000E-07,
+   System_Timer           => 
+      ( Type           => Ticker,
+        Worst_Overhead => 1.000E-05,
+        Avg_Overhead   => 1.000E-05,
+        Best_Overhead  => 1.000E-05,
+        Period         => 0.010000),
+   Speed_Factor           => 1.00);
+
+Scheduler (
+   Type            => Primary_Scheduler,
+   Name            => rtems,
+   Host            => leon3,
+   Policy          => 
+      ( Type                 => Fixed_Priority,
+        Worst_Context_Switch => 1.000E-06,
+        Avg_Context_Switch   => 1.000E-06,
+        Best_Context_Switch  => 1.000E-06,
+        Max_Priority         => 16,
+        Min_Priority         => 1));
+
+Scheduling_Server (
+   Type                       => Regular,
+   Name                       => tmchannelctrl,
+   Server_Sched_Parameters    => 
+      ( Type         => Fixed_Priority_Policy,
+        The_Priority => 5,
+        Preassigned  => YES),
+   Scheduler                  => rtems);
+
+Scheduling_Server (
+   Type                       => Regular,
+   Name                       => epdmanager,
+   Server_Sched_Parameters    => 
+      ( Type         => Fixed_Priority_Policy,
+        The_Priority => 4,
+        Preassigned  => YES),
+   Scheduler                  => rtems);
+
+Scheduling_Server (
+   Type                       => Regular,
+   Name                       => hkfdirmng,
+   Server_Sched_Parameters    => 
+      ( Type         => Fixed_Priority_Policy,
+        The_Priority => 3,
+        Preassigned  => YES),
+   Scheduler                  => rtems);
+
+Scheduling_Server (
+   Type                       => Regular,
+   Name                       => bkgtcexec,
+   Server_Sched_Parameters    => 
+      ( Type         => Fixed_Priority_Policy,
+        The_Priority => 1,
+        Preassigned  => YES),
+   Scheduler                  => rtems);
+
+Shared_Resource (
+   Type     => Priority_Inheritance_Resource,
+   Name     => systemdatapool);
+
+Operation (
+   Type                       => Simple,
+   Name                       => fgettc,
+   Worst_Case_Execution_Time  => 0.001000,
+   Avg_Case_Execution_Time    => 0.001000,
+   Best_Case_Execution_Time   => 0.001000);
+
+Operation (
+   Type                       => Simple,
+   Name                       => ftxtmlist,
+   Worst_Case_Execution_Time  => 0.001000,
+   Avg_Case_Execution_Time    => 0.001000,
+   Best_Case_Execution_Time   => 0.001000);
+
+Operation (
+   Type                       => Simple,
+   Name                       => fsendtmlist,
+   Worst_Case_Execution_Time  => 0.001000,
+   Avg_Case_Execution_Time    => 0.001000,
+   Best_Case_Execution_Time   => 0.001000);
+
+Operation (
+   Type                       => Simple,
+   Name                       => freplytmqueued,
+   Worst_Case_Execution_Time  => 5.000E-04,
+   Avg_Case_Execution_Time    => 5.000E-04,
+   Best_Case_Execution_Time   => 5.000E-04);
+
+Operation (
+   Type                     => Composite,
+   Name                     => fsendtmlist_replytmqueued,
+   Composite_Operation_List => 
+      ( fsendtmlist,
+        freplytmqueued));
+
+Operation (
+   Type                       => Simple,
+   Name                       => fdohk_fdir,
+   Worst_Case_Execution_Time  => 0.010000,
+   Avg_Case_Execution_Time    => 0.010000,
+   Best_Case_Execution_Time   => 0.010000,
+   Shared_Resources_To_Lock   => 
+      ( systemdatapool),
+   Shared_Resources_To_Unlock => 
+      ( systemdatapool));
+
+Transaction (
+   Type            => regular,
+   Name            => transacceptedtc,
+   External_Events => 
+      ( ( Type             => Bursty,
+          Name             => ev_newtc,
+          Avg_Interarrival => 1.000E-04,
+          Distribution     => UNIFORM,
+          Bound_Interval   => 1.000,
+          Max_Arrivals     => 10)),
+   Internal_Events => 
+      ( ( Type => Regular,
+          Name => ev_tx_accepted),
+        ( Type => Regular,
+          Name => ev_tx_tmlist),
+        ( Type => Regular,
+          Name => dl_new_tc,
+          Timing_Requirements => 
+            ( Type             => Hard_Global_Deadline,
+              Deadline         => 1.000,
+              Referenced_Event => ev_newtc))),
+   Event_Handlers  => 
+      ( (Type               => Activity,
+         Input_Event        => ev_newtc,
+         Output_Event       => ev_tx_accepted,
+         Activity_Operation => fgettc,
+         Activity_Server    => epdmanager),
+        (Type               => Activity,
+         Input_Event        => ev_tx_accepted,
+         Output_Event       => ev_tx_tmlist,
+         Activity_Operation => ftxtmlist,
+         Activity_Server    => epdmanager),
+        (Type               => Activity,
+         Input_Event        => ev_tx_tmlist,
+         Output_Event       => dl_new_tc,
+         Activity_Operation => fsendtmlist_replytmqueued,
+         Activity_Server    => tmchannelctrl)));
+
+Transaction (
+   Type            => regular,
+   Name            => transhk_fdir,
+   External_Events => 
+      ( ( Type       => Periodic,
+          Name       => ev_hk_fdir,
+          Period     => 1.000,
+          Max_Jitter => 0.000,
+          Phase      => 0.000)),
+   Internal_Events => 
+      ( ( Type => Regular,
+          Name => dl_hk_fdir,
+          Timing_Requirements => 
+            ( Type             => Hard_Global_Deadline,
+              Deadline         => 1.000,
+              Referenced_Event => ev_hk_fdir)),
+        ( Type => Regular,
+          Name => ev_txtmlist),
+        ( Type => Regular,
+          Name => ev_sendtm_reply)),
+   Event_Handlers  => 
+      ( (Type               => Activity,
+         Input_Event        => ev_hk_fdir,
+         Output_Event       => ev_txtmlist,
+         Activity_Operation => fdohk_fdir,
+         Activity_Server    => hkfdirmng),
+        (Type               => Activity,
+         Input_Event        => ev_txtmlist,
+         Output_Event       => ev_sendtm_reply,
+         Activity_Operation => ftxtmlist,
+         Activity_Server    => hkfdirmng),
+        (Type               => Activity,
+         Input_Event        => ev_sendtm_reply,
+         Output_Event       => dl_hk_fdir,
+         Activity_Operation => fsendtmlist_replytmqueued,
+         Activity_Server    => tmchannelctrl)));
+
